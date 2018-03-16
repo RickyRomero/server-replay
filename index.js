@@ -47,6 +47,7 @@ function serverReplay(har, options) {
 }
 
 function chooseProtocol(options, connection) {
+    connection.on("error", handleProxyError);
     connection.once("data", function (buf) {
         var intent = buf.toString().split("\r\n")[0];
         var destPort = options.port + 1;
@@ -67,7 +68,11 @@ function chooseProtocol(options, connection) {
             bridgeConnection(buf, connection, destPort);
         }
     });
+}
 
+function handleProxyError(err) {
+    console.warn("An error occurred while proxying:");
+    console.warn(err.stack);
 }
 
 function bridgeConnection(buf, connection, destPort) {
