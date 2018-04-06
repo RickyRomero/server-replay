@@ -33,27 +33,55 @@ function serverReplay(har, options) {
         };
     }
 
+    if (!options.httpPort) {
+        options.httpPort = 0;
+    }
+
+    if (!options.httpsPort) {
+        options.httpsPort = 0;
+    }
+
     options.ssl.key = fs.readFileSync(options.ssl.key);
     options.ssl.cert = fs.readFileSync(options.ssl.cert);
 
     var requestListener = makeRequestListener(har.log.entries, options);
-    var internalProxy = net.createServer(chooseProtocol.bind(this, options));
     var httpServer = http.createServer(requestListener);
     var httpsServer = https.createServer(options.ssl, requestListener);
+    var proxyStarted = false;
 
+    httpServer.listen(options.httpPort);
+    httpsServer.listen(options.httpsPort);
+
+    httpServer.once("listening", function () {
+        options.httpPort = httpServer.address().port;
+        if (options.httpPort && options.httpsPort && !proxyStarted) {
+            startProxy(options);
+            proxyStarted = true;
+        }
+    });
+
+    httpsServer.once("listening", function () {
+        options.httpsPort = httpsServer.address().port;
+        if (options.httpPort && options.httpsPort && !proxyStarted) {
+            startProxy(options);
+            proxyStarted = true;
+        }
+    });
+}
+
+function startProxy(options) {
+    var internalProxy = net.createServer(chooseProtocol.bind(this, options));
     internalProxy.listen(options.port);
-    httpServer.listen(options.port + 1);
-    httpsServer.listen(options.port + 2);
 }
 
 function chooseProtocol(options, connection) {
     connection.on("error", handleProxyError);
     connection.once("data", function (buf) {
         var intent = buf.toString().split("\r\n")[0];
-        var destPort = options.port + 1;
+        var destPort = options.httpPort;
 
         if (/^CONNECT .+?:443 HTTP\/\d(?:\.\d)?$/.test(intent)) {
-            destPort += 1;
+            destPort = options.httpsPort;
             connection.write(
                 "HTTP/1.1 200 Connection established\r\n" +
                 "Connection: keep-alive\r\n" +
